@@ -396,6 +396,11 @@
               <FilePath>..\common\Src\commonCMD.c</FilePath>
             </File>
             <File>
+              <FileName>MCU.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\common\Src\MCU.c</FilePath>
+            </File>
+            <File>
               <FileName>CAN.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\CAN\common\Src\CAN.c</FilePath>
@@ -404,6 +409,11 @@
               <FileName>FLASH.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\FLASH\common\Src\FLASH.c</FilePath>
+            </File>
+            <File>
+              <FileName>MCU_GD32F103R.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\User\Core\Src\MCU_GD32F103R.c</FilePath>
             </File>
             <File>
               <FileName>CAN_GD32F103R.c</FileName>
