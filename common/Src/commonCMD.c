@@ -34,6 +34,7 @@
 //---Includes-------------------------------------------------------------------//
 #include "commonCMD.h"
 #include "MCU.h"
+#include <string.h>
 //------------------------------------------------------------------------------//
 
 //---Private macros ------------------------------------------------------------//
@@ -46,7 +47,7 @@
 #define MCU_DATA_REQUEST               0x03  /*!< Запрос данных микроконтроллера.     */
 #define UID_REQUEST                    0x04  /*!< Запрос UID.                         */
 #define MODULE_STATE_REQUEST           0x05  /*!< Запрос состояния модуля.            */
-#define SILENCE_MODE                   0x06  /*!< Изменение/Запрос режима работы CAN. */
+#define CAN_MODE                       0x06  /*!< Изменение/Запрос режима работы CAN. */
 
 #define MODULE_ADDRESS_CHANGE          0x30  /*!< Смена адреса модуля.                */
 #define CAN_MODULE_SPEED_CHANGE        0x31  /*!< Смена скорости CAN модуля.          */
@@ -55,15 +56,24 @@
 #define SUPPORTED_COM_CMD_REQUEST      0x3F  /*!< Запрос поддерживаемых общих команд. */
 //--------------------------------------//
 
-//-Макросы для определения типа параметров при команде SILENCE_MODE-//
-#define NORMAL_MODE 0x0
-#define CAN_TX_OFF  0x1
-#define READ_MODE   0x2
-//------------------------------------------------------------------//
+//-Макросы для определения типа параметров при команде CAN_MODE-//
+#define NORMAL_MODE (uint8_t)0x0 /*!< Переключение режима работы CAN на "Normal communication mode". */
+#define SILENT_MODE (uint8_t)0x1 /*!< Переключение режима работы CAN на "Silent communication mode". */
+#define READ_MODE   (uint8_t)0x2 /*!< Определение  режима работы CAN.                                */
+//--------------------------------------------------------------//
 
-#define Put16toFrameData (*((uint16_t*)(TXframePointer -> Data))) // Скопировать данные формата uint16_t в TXframePointer -> Data.
-#define Put32toFrameData (*((uint32_t*)(TXframePointer -> Data))) // Скопировать данные формата uint32_t в TXframePointer -> Data.
-#define Put64toFrameData (*((uint64_t*)(TXframePointer -> Data))) // Скопировать данные формата uint64_t в TXframePointer -> Data.
+//-Макросы для определения параметров при команде UID_REQUEST-//
+#define SECTION_LOW  (uint8_t)0x0 /*!< Младшая часть. */
+#define SECTION_MID  (uint8_t)0x1 /*!< Средняя часть. */
+#define SECTION_HIGH (uint8_t)0x2 /*!< Старшая часть. */
+//------------------------------------------------------------//
+
+#define Put16toFrameData (*((uint16_t*)(TXframePointer -> Data))) /*!< Скопировать данные формата uint16_t в TXframePointer -> Data. */
+#define Put32toFrameData (*((uint32_t*)(TXframePointer -> Data))) /*!< Скопировать данные формата uint32_t в TXframePointer -> Data. */
+#define Put64toFrameData (*((uint64_t*)(TXframePointer -> Data))) /*!< Скопировать данные формата uint64_t в TXframePointer -> Data. */
+
+#define WAS    1
+#define WASNOT 0
 //------------------------------------------------------------------------------//
 
 //---Exported variables---------------------------------------------------------//
@@ -83,7 +93,7 @@ static CAN_tx_frame_struct* TXframePointer = &CAN_tx_frame;
 static Config_struct*       ConfigPointer  = &Config;
 static RO_Constants_struct* ConstPointer   = &RO_Constants;
 
-
+static uint8_t module_interface_types [8] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}; // Набор констант для ответа на поступившую в модуль команду MODULE_INTERFACE_TYPES_REQUEST.
 //------------------------------------------------------------------------//
 //------------------------------------------------------------------------------//
 
@@ -102,8 +112,13 @@ void InitStructs (Config_struct* ConfigPointer, RO_Constants_struct*  ConstPoint
   */
 void SendModuleInfo (void)
 {
-TXframePointer -> id.param = 0;
 InitStructs (ConfigPointer, ConstPointer, TXframePointer);
+TXframePointer->Data[0] = ConstPointer  -> HardwareRevision.major;
+TXframePointer->Data[1] = ConstPointer  -> HardwareRevision.minor;
+TXframePointer->Data[2] = ConfigPointer -> BootloaderVersion.major;
+TXframePointer->Data[3] = ConfigPointer -> BootloaderVersion.minor;
+TXframePointer->Data[4] = ConfigPointer -> ProgramVersion.major;
+TXframePointer->Data[5] = ConfigPointer -> ProgramVersion.minor;
 putIntoCanTxBuffer(&CAN_tx_frame);
 }
 //------------------------------------------------------------------------------//
@@ -118,89 +133,172 @@ putIntoCanTxBuffer(&CAN_tx_frame);
   */
 void ParsingComCmd (canRxMsgBuf_struct* canRxMsg)
 {
-uint8_t CMD_type = ((canRxMsg->cmd13param >> 6) & MASK);
-uint32_t IDarray [3];
-
-
+uint8_t        CMD_type = ((canRxMsg->cmd13param >> 6) & MASK);
+static uint8_t IDarray [24] = {0}; // 24 - размер UID в байтах согласно протоколу.
+uint8_t        IDsize;
+static uint8_t ProtectCMDstate;  // Флаг поступившей команды EXECUTING_PROTECTED_CMD: ProtectCMDstate = WAS    - команда поступила;
+                                 //                                                   ProtectCMDstate = WASNOT - команда не поступила;
 CMD_type = MCU_DATA_REQUEST; // СТРОЧКА ДЛЯ ОТЛАДКИ
 
-  
 switch (CMD_type)
-{
-case (MODULE_INFO_REQUEST): // Информация о модуле. Передается при старте модуля и как ответ на команду 0x00.
-  SendModuleInfo();
-  break;
+  {
+  case (MODULE_INFO_REQUEST): // Информация о модуле. Передается при старте модуля и как ответ на команду 0x00.
+    SendModuleInfo();
+    break;
 
-case (MODULE_SN_REQUEST): // Запрос серийного номера модуля.
-  TXframePointer -> id.cmd_type        = MODULE_SN_REQUEST;
-  TXframePointer -> id.param           = 0;
-  Put64toFrameData = *((uint64_t*)(ConstPointer -> SerialNumberLW));
-  putIntoCanTxBuffer(&CAN_tx_frame);
-  break;
-
-case (MODULE_INTERFACE_TYPES_REQUEST):
-  TXframePointer -> id.cmd_type = MODULE_INTERFACE_TYPES_REQUEST;
-  TXframePointer -> id.param    = 0;
-  putIntoCanTxBuffer(&CAN_tx_frame);
-  break;
-
-case (MCU_DATA_REQUEST): // Запрос данных микроконтроллера.
-  TXframePointer -> id.cmd_type = MCU_DATA_REQUEST;
-  TXframePointer -> id.param    = 0;
-  Put16toFrameData = Read_MCU_FMD();
-  putIntoCanTxBuffer(&CAN_tx_frame);
-  break;
-
-case (UID_REQUEST):      // Запрос UID.
-  Read_MCU_UID(IDarray); // Чтение UID в микроконтроллере (STM, GD, AT).
-  TXframePointer -> id.cmd_type = UID_REQUEST;
-
-  for (uint8_t i=0; i<3; i++)
-    {
-    TXframePointer -> id.param = i;
-    Put32toFrameData = IDarray[i];
+  case (MODULE_SN_REQUEST): // Запрос серийного номера модуля.
+    TXframePointer -> id.cmd_type = MODULE_SN_REQUEST;
+    TXframePointer -> id.param    = 0;
+    TXframePointer -> NumOfData   = 8;
+    Put64toFrameData              = *((uint64_t*)(ConstPointer -> SerialNumberLW));
     putIntoCanTxBuffer(TXframePointer);
-    }
-  break;
+    break;
 
-case (MODULE_STATE_REQUEST): // Запрос состояния модуля.
-  TXframePointer -> id.cmd_type = MODULE_STATE_REQUEST;
-  TXframePointer -> id.param    = (ReadReasonForReboot() & 0x3F);
-  break;
+  case (MODULE_INTERFACE_TYPES_REQUEST): // Запрос типов интерфейсов модуля.
+    TXframePointer -> id.cmd_type = MODULE_INTERFACE_TYPES_REQUEST;
+    TXframePointer -> id.param    = 0;
+    TXframePointer -> NumOfData   = 8;
+    memcpy(TXframePointer -> Data, module_interface_types, 8); 
+    putIntoCanTxBuffer(TXframePointer);
+    break;
 
-case (SILENCE_MODE): // Изменение режима работы CAN.
-  TXframePointer -> id.cmd_type = SILENCE_MODE;
-  switch (canRxMsg->cmd13param & MASK)
-    {
-  	case (NORMAL_MODE):
-      SetCanMode(NORMAL_MODE);
-      TXframePointer -> id.param = ReadCanMode();
-      putIntoCanTxBuffer(&CAN_tx_frame);
-  		break; // В CAN.c должны быть функции для определения режима работы CAN и установки нужного режима.
-  	case (CAN_TX_OFF):
-      SetCanMode(CAN_TX_OFF);
-  		break;
-  	default:
-  		break;
-    }
+  case (MCU_DATA_REQUEST): // Запрос данных микроконтроллера.
+    TXframePointer -> id.cmd_type = MCU_DATA_REQUEST;
+    TXframePointer -> id.param    = 0;
+    TXframePointer -> NumOfData   = 2;
+    Put16toFrameData = Read_MCU_FMD(); // Чтение параметра Flash memory density.
+    putIntoCanTxBuffer(TXframePointer);
+    break;
 
+  case (UID_REQUEST): // Запрос UID.
+    TXframePointer -> id.cmd_type = UID_REQUEST;
+    if (!IDarray[0]) // Если в младшем байте массива 0, то прочитать значение UID. Сделано так чтобы не читать каждый раз.
+      {
+      IDsize = Read_MCU_UID(IDarray); // Чтение UID в микроконтроллере (STM, GD, AT).
+      }
+    switch (canRxMsg->cmd13param & MASK) // Определение параметра команды.
+      {
+      case (SECTION_LOW): // Запрос на младшую часть UID.
+        //-Вычисление количества байт данных для отправки-//
+        if (IDsize < 9)
+          TXframePointer -> NumOfData = IDsize;
+        else
+          TXframePointer -> NumOfData = 8;
+        //------------------------------------------------//
+        TXframePointer -> id.param = SECTION_LOW;
+        Put64toFrameData           = *((uint64_t*)IDarray); // Копируем первые 8 байт (с 0 по 7) из массива IDarray.
+        break;
 
+      case (SECTION_MID): // Запрос на среднюю часть UID.
+        //-Вычисление количества байт данных для отправки-//
+        if (IDsize < 9)
+          TXframePointer -> NumOfData = 0;
+        else if (IDsize < 17)
+          TXframePointer -> NumOfData = IDsize - 8;
+        else// if (IDsize < 25)
+          TXframePointer -> NumOfData = 8;
+        //------------------------------------------------//
+        TXframePointer -> id.param = SECTION_MID;
+        Put64toFrameData           = *((uint64_t*)(IDarray + 8)); // Копируем с 8 по 15 байты из массива IDarray.
+        break;
 
+      case (SECTION_HIGH): // Запрос на старшую часть UID.
 
+        //-Вычисление количества байт данных для отправки-//
+        if (IDsize < 17)
+          TXframePointer -> NumOfData = 0;
+        else// if (IDsize < 25)
+          TXframePointer -> NumOfData = IDsize - 16;
+        //------------------------------------------------//
+        TXframePointer -> id.param = SECTION_HIGH;
+        Put64toFrameData           = *((uint64_t*)(IDarray + 16)); // Копируем с 16 по 23 байты из массива IDarray.
+        break;
+      default:
+        break;
+      }
+    putIntoCanTxBuffer(TXframePointer);
+    break;
 
-  break;
+  case (MODULE_STATE_REQUEST): // Запрос состояния модуля.
+    TXframePointer -> id.cmd_type = MODULE_STATE_REQUEST;
+    TXframePointer -> id.param    = ReadReasonForReboot();
+    TXframePointer -> NumOfData   = 0;
+    putIntoCanTxBuffer(TXframePointer);
+    break;
 
+  case (CAN_MODE): // Изменение или определение режима работы CAN.
+    TXframePointer -> id.cmd_type = CAN_MODE;
+    TXframePointer -> NumOfData   = 0;
+    switch (canRxMsg->cmd13param & MASK)
+      {
+      case (NORMAL_MODE):
+        SetReadCanMode(NORMAL_MODE); // Установка для CAN режим "Normal communication mode".
+        TXframePointer -> id.param = SetReadCanMode(READ_MODE);
+        putIntoCanTxBuffer(TXframePointer);
+        break; // В CAN.c должны быть функции для определения режима работы CAN и установки нужного режима.
+      case (SILENT_MODE):
+        TXframePointer -> id.param = SILENT_MODE;
+        putIntoCanTxBuffer(TXframePointer);
+        SetReadCanMode(SILENT_MODE); // Установка для CAN режим "Silent communication mode".
+        break;
+      case (READ_MODE):
+        if (SetReadCanMode(READ_MODE) == NORMAL_MODE)
+          {
+          TXframePointer -> id.param = NORMAL_MODE;
+          putIntoCanTxBuffer(TXframePointer);
+          break;
+          }
+        else // Если для CAN установлен режим "Отправка в CAN отключена".
+          {
+          SetReadCanMode(NORMAL_MODE); // Установка для CAN режим "Normal communication mode".
+          TXframePointer -> id.param = SILENT_MODE;
+          putIntoCanTxBuffer(TXframePointer);
+          SetReadCanMode(SILENT_MODE); // Установка для CAN режим "Silent communication mode".
+          break;
+          }
+      default:
+        break;
+      }
+      
+  case (MODULE_ADDRESS_CHANGE): // Смена адреса модуля.
+    if (ProtectCMDstate ==  WAS)
+      {
+      TXframePointer -> id.cmd_type = MODULE_ADDRESS_CHANGE;
+      TXframePointer -> id.param    = (canRxMsg->cmd13param & MASK); // Определение параметра (нового адреса) команды.
+      TXframePointer -> NumOfData   = 1;
+      TXframePointer -> Data[0]     = ConfigPointer -> AddrModule;
+      putIntoCanTxBuffer(TXframePointer);
+        
+      ConfigPointer -> AddrModule = TXframePointer -> id.param;
+      Write_Config_to_flash(ConfigPointer);
+        
+      ProtectCMDstate = WASNOT;
+      SystemReset();
+      }
+    break;
 
+  case (CAN_MODULE_SPEED_CHANGE): // 
+    break;
 
+  case (EXECUTING_PROTECTED_CMD): // Выполнение защищенной команды.
+    if( (canRxMsg->cmd13param & MASK) == 0x55) // Поле параметры 6 бит!!!!!!!! 0x55 это 7 бит!!!!!
+      {
+      ProtectCMDstate = WAS;
+      return;
+      }
+    break;
 
+  case (MODULE_OVERLOAD): // 
+    break;
 
+  case (SUPPORTED_COM_CMD_REQUEST): // 
+    break;
 
+  default:
+    break;
+  }
 
-
-
-default:
-  break;
-}
+ProtectCMDstate = WASNOT;
 }
 
 
@@ -246,7 +344,7 @@ TXframePointer -> id.interface_type = 0;                           // Тип интерф
 TXframePointer -> id.CMD            = 1;                           // Тип кадра, CMD=1 - команда, CMD=0 - данные.
 TXframePointer -> id.cmd_type       = 0;                           // Тип команды.
 TXframePointer -> id.param          = 0;                           // Параметры.
-TXframePointer -> NumOfData         = 8;                           // Количество данных для передачи.
+TXframePointer -> NumOfData         = 6;                           // Количество данных для передачи.
 }
 //------------------------------------------------------------------------------//
 //------------------------------------------------------------------------------//

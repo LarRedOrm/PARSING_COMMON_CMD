@@ -18,6 +18,7 @@
 
 //---Includes-------------------------------------------------------------------//
 #include <stdint.h>
+#include "MCU.h"
 //------------------------------------------------------------------------------//
 
 //---Defines--------------------------------------------------------------------//
@@ -31,12 +32,12 @@
 
 
 //---Function prototypes--------------------------------------------------------//
-void    MCU_Init             (void);
-void    SystemReset          (void);
-void    Read_MCU_UID         (uint32_t* IDarray);
-uint8_t ReadReasonForReboot (void);
+void    MCU_Init            (void);
+void    SystemReset         (void);
+uint8_t Read_MCU_UID        (uint8_t* IDarray);
+ResetReason_enum ReadReasonForReboot (void);
 
-void     Blink        (void);
+void     Blink              (void);
 //------------------------------------------------------------------------------//
 
   

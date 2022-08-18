@@ -44,7 +44,7 @@ OF SUCH DAMAGE.
 //------------------------------------------------------------------------------//
 
 FlagStatus receive_flag;
-//can_receive_message_struct receive_message;
+
 /*!
     \brief      this function handles NMI exception
     \param[in]  none

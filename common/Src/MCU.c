@@ -67,13 +67,15 @@ __weak void SystemReset (void)
 
 
 /**
-  * @brief   __weak функция - чтение Unique device ID.
+  * @brief   Чтение Unique device ID.
   * @details Чтение значения Unique device ID в используемом микроконтроллере (STM, GD, AT).
-  * @param   IDarray - указатель на массив типа uint32_t. Массив содержит Unique device ID.
-  * @return  None.
+  * @param   IDarray - указатель на массив типа uint8_t. Массив содержит Unique device ID.
+  * @return  IDsize  - размер ID в байтах.
   */
-__weak void Read_MCU_UID (uint32_t* IDarray)
-{;}
+__weak uint8_t Read_MCU_UID (uint8_t* IDarray)
+{
+return 0;
+}
 //------------------------------------------------------------------------------//
 
 
@@ -82,9 +84,9 @@ __weak void Read_MCU_UID (uint32_t* IDarray)
   * @details Функция возвращает код причины перезапуска модуля (микроконтроллера (STM, GD, AT)).
   * @return  None.
   */
-__weak uint8_t ReadReasonForReboot (void)
+__weak ResetReason_enum ReadReasonForReboot (void)
 {
-return 0;
+return ERROR_REASON;
 }
 //------------------------------------------------------------------------------//
 

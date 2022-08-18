@@ -25,17 +25,21 @@
 
 //---Types----------------------------------------------------------------------//
 /**
-  * @brief Reason for reboot enum
+  * @brief   Reason for reset enum
+  * @details From STM32 Reference manual RM0008.
   */
-enum ReasonForReboot
+typedef enum
 {
-EPRSTF = 0, /*!< External PIN reset flag.          */
-PORRSTF,    /*!< Power reset flag.                 */
-SWRSTF,     /*!< Software reset flag.              */
-FWDGTRSTF,  /*!< Free watchdog timer reset flag.   */
-WWDGTRSTF,  /*!< Window watchdog timer reset flag. */
-LPRSTF      /*!< Low-power reset flag.             */
-};
+PIN = 0,     /*!< PIN reset flag:                   PINRSTF.  */
+POWER,       /*!< Power reset flag:                 PORRSTF.  */
+SOFTWARE,    /*!< Software reset flag:              SFTRSTF.  */
+INDEP_WDG,   /*!< Independent watchdog reset flag:  IWDGRSTF. */
+WINDOW_WDG,  /*!< Window watchdog reset flag:       WWDGRSTF. */
+LOW_POWER,   /*!< Low-power reset flag:             LPWRRSTF. */
+ERROR_REASON /*!< ERROR                                       */
+} ResetReason_enum;
+
+
 //------------------------------------------------------------------------------//
 
 //---Exported types-------------------------------------------------------------//
@@ -45,8 +49,8 @@ LPRSTF      /*!< Low-power reset flag.             */
 //---Function prototypes--------------------------------------------------------//
 void    MCU_Init            (void);
 void    SystemReset         (void);
-void    Read_MCU_UID        (uint32_t* IDarray);
-uint8_t ReadReasonForReboot (void);
+uint8_t Read_MCU_UID        (uint8_t* IDarray);
+ResetReason_enum ReadReasonForReboot (void);
 
 void    Blink               (void);
 //------------------------------------------------------------------------------//

@@ -76,12 +76,15 @@
 //------------------------------------------------------------------------------//
 
 //---Private variables----------------------------------------------------------//
+static ResetReason_enum ResetReason = ERROR_REASON; // Переменная для хранения кода причины последнего reseta.
 //------------------------------------------------------------------------------//
 
 //---Private constants----------------------------------------------------------//
 //------------------------------------------------------------------------------//
 
 //---Function prototypes--------------------------------------------------------//
+// void templight (void); // ФУНКЦИЯ ДЛЯ ОТЛАДКИ.
+ResetReason_enum DetermineResetReason (void);
 //------------------------------------------------------------------------------//
 
 //---Exported functions---------------------------------------------------------//
@@ -98,7 +101,9 @@
   */
 void MCU_Init (void)
 {
+ResetReason = DetermineResetReason(); // Определение причины последнего сброса.
 RCU_RSTSCK |= RCU_RSTSCK_RSTFC; // Reset flag clear. This bit is set by software to clear all reset flags in Reset source/clock register (RCU_RSTSCK).
+
 RCU_APB1EN |= RCU_APB1EN_PMUEN; // Enabled power management unit (PMU) clock.
 
 NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);                                        // System interrupt init.
@@ -161,14 +166,17 @@ NVIC_SystemReset();
 /**
   * @brief   Чтение Unique device ID.
   * @details Чтение значения Unique device ID в используемом микроконтроллере (STM, GD, AT).
-  * @param   IDarray - указатель на массив типа uint32_t. Массив содержит Unique device ID.
-  * @return  None.
+  * @param   IDarray - указатель на массив типа uint8_t. Массив содержит Unique device ID.
+  * @return  IDsize  - размер ID в байтах.
   */
-void Read_MCU_UID (uint32_t* IDarray)
+uint8_t Read_MCU_UID (uint8_t* IDarray)
 {
-IDarray [0] = *(uint32_t*)0x1FFFF7E8;
-IDarray [1] = *(uint32_t*)0x1FFFF7EC;
-IDarray [2] = *(uint32_t*)0x1FFFF7F0;
+uint8_t IDsize = 12; // Unique device ID в байтах согласно GD32F10x User Manual.
+for (uint8_t i=0; i<9; i+=4)
+  {
+  *((uint32_t*)(&IDarray[i])) = *((uint32_t*)(0x1FFFF7E8 + i));
+  }
+return IDsize;
 }
 //------------------------------------------------------------------------------//
 
@@ -176,19 +184,13 @@ IDarray [2] = *(uint32_t*)0x1FFFF7F0;
 /**
   * @brief   __weak функция - чтение кода причины перезапуска.
   * @details Функция возвращает код причины перезапуска модуля (микроконтроллера (STM, GD, AT)).
-  * @return  None.
+  * @return  ResetReason - код причины перезапуска модуля.
   */
-uint8_t ReadReasonForReboot (void)
+ResetReason_enum ReadReasonForReboot (void)
 {
-uint32_t temp = RCU_RSTSCK; // Reset source/clock register (RCU_RSTSCK).
-temp = (temp >> 26);
-
-return (uint8_t)temp;
+return ResetReason;
 }
 //------------------------------------------------------------------------------//
-
-
-
 
 
 /**
@@ -207,7 +209,67 @@ delay_1ms(100);
 //------------------------------------------------------------------------------//
 
 
+/*
+void templight (void) // ФУНКЦИЯ ДЛЯ ОТЛАДКИ
+{
+//---Настройка GPIO-----------------------------------------//
+RCU_APB2EN |= RCU_APB2EN_PCEN; // IO port C clock enabled.
+RCU_APB2EN |= RCU_APB2EN_PEEN; // IO port E clock enabled.
+
+//---PC0, PC2 ---> LED2, LED3---//
+GPIO_CTL0(GPIOC) &= (~( GPIO_CTL0_MD0 | GPIO_CTL0_CTL0 |
+                        GPIO_CTL0_MD2 | GPIO_CTL0_CTL2 )); // Clear.
+
+GPIO_CTL0(GPIOC) |= GPIO_MODE_SET(0, (GPIO_MODE_OUT_PP |
+                                      GPIO_OSPEED_10MHZ)
+                                      & (uint32_t)0x0FU); // GPIO output with push-pull.  
+GPIO_CTL0(GPIOC) |= GPIO_MODE_SET(2, (GPIO_MODE_OUT_PP |
+                                      GPIO_OSPEED_10MHZ)
+                                      & (uint32_t)0x0FU); // GPIO output with push-pull.  
+//------------------------------//                        
+                        
+//---PE0, PE2 ---> LED4, LED5---//
+GPIO_CTL0(GPIOE) &= (~( GPIO_CTL0_MD0 | GPIO_CTL0_CTL0 |
+                        GPIO_CTL0_MD2 | GPIO_CTL0_CTL2 )); // Clear.
+GPIO_CTL0(GPIOE) |= GPIO_MODE_SET(0, (GPIO_MODE_OUT_PP |
+                                      GPIO_OSPEED_10MHZ)
+                                      & (uint32_t)0x0FU); // GPIO output with push-pull.  
+GPIO_CTL0(GPIOE) |= GPIO_MODE_SET(2, (GPIO_MODE_OUT_PP |
+                                      GPIO_OSPEED_10MHZ)
+                                      & (uint32_t)0x0FU); // GPIO output with push-pull.  
+GPIO_OCTL(GPIOC) |= GPIO_OCTL_OCTL0; // Зажечь светик.
+//------------------------------//
+}
+*/
+//------------------------------------------------------------------------------//
+//------------------------------------------------------------------------------//
+
 //---Private functions----------------------------------------------------------//
+/**
+  * @brief   Определение причины перезапуска.
+  * @details Функция определяет и возвращает код причины перезапуска модуля (микроконтроллера (STM, GD, AT)).
+  * @return  ResetReason_enum - код причины перезапуска модуля.
+  */
+ResetReason_enum DetermineResetReason (void)
+{
+uint32_t temp = RCU_RSTSCK;           // Reset source/clock register (RCU_RSTSCK)
+  
+if (temp & RCU_RSTSCK_PORRSTF)        // Если запуск начинается после power reset (вкл. питания).
+  return POWER;
+else if (temp & RCU_RSTSCK_EPRSTF)    // If external pin reset flag.
+  return PIN;
+else if (temp & RCU_RSTSCK_SWRSTF)    // If software reset flag.
+  return SOFTWARE;
+else if (temp & RCU_RSTSCK_FWDGTRSTF) // If free watchdog timer reset flag.
+  return INDEP_WDG;
+else if (temp & RCU_RSTSCK_WWDGTRSTF) // If window watchdog timer reset flag.
+  return WINDOW_WDG;
+else if (temp & RCU_RSTSCK_LPRSTF)    // If low-power reset flag.
+  return LOW_POWER;
+else
+  return ERROR_REASON;
+}
+//------------------------------------------------------------------------------//
 //------------------------------------------------------------------------------//
 
 
