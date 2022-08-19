@@ -1,9 +1,9 @@
 /**
   ******************************************************************************
   *
-  * @file      commonCMD.h
+  * @file      ParsingCommonCMD.h
   *
-  * @brief     Header for commonCMD.c file.
+  * @brief     Header for ParsingCommonCMD.c file.
   *
   * @details
   *
@@ -15,8 +15,8 @@
 **/
 
 /* Define to prevent recursive inclusion -------------------------------------*/
-#ifndef __COMMON_CMD_H
-#define __COMMON_CMD_H
+#ifndef __PARSING_COMMON_CMD_H
+#define __PARSING_COMMON_CMD_H
 
 //---Includes-------------------------------------------------------------------//
 #include "FLASH.h"
@@ -35,11 +35,10 @@
 //---Function prototypes--------------------------------------------------------//
 void SendModuleInfo (void);
 void ParsingComCmd  (canRxMsgBuf_struct* canRxMsg);
-
 //------------------------------------------------------------------------------//
 
   
   
-#endif /* __COMMON_CMD_H */
+#endif /* __PARSING_COMMON_CMD_H */
 
 //***********************************END OF FILE***********************************

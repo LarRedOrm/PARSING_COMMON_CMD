@@ -391,9 +391,9 @@
               <FilePath>.\User\Core\Src\main.c</FilePath>
             </File>
             <File>
-              <FileName>commonCMD.c</FileName>
+              <FileName>ParsingCommonCMD.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\common\Src\commonCMD.c</FilePath>
+              <FilePath>..\common\Src\ParsingCommonCMD.c</FilePath>
             </File>
             <File>
               <FileName>MCU.c</FileName>
@@ -421,9 +421,9 @@
               <FilePath>..\..\CAN\CAN_GD32F103R\Core\Src\CAN_GD32F103R.c</FilePath>
             </File>
             <File>
-              <FileName>GD_flash.c</FileName>
+              <FileName>FLASH_GD32F103R.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\FLASH\GD_Flash\User\Src\GD_flash.c</FilePath>
+              <FilePath>..\..\FLASH\GD_Flash\User\Src\FLASH_GD32F103R.c</FilePath>
             </File>
             <File>
               <FileName>gd32f10x_it.c</FileName>

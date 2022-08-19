@@ -1,7 +1,7 @@
 /**
   ******************************************************************************
   *
-  * @file      commonCMD.c
+  * @file      ParsingCommonCMD.c
   *
   * @brief     Обработка команд общего (common) типа.
   *
@@ -32,7 +32,7 @@
 **/
 
 //---Includes-------------------------------------------------------------------//
-#include "commonCMD.h"
+#include "ParsingCommonCMD.h"
 #include "MCU.h"
 #include <string.h>
 //------------------------------------------------------------------------------//
@@ -52,8 +52,22 @@
 #define MODULE_ADDRESS_CHANGE          0x30  /*!< Смена адреса модуля.                */
 #define CAN_MODULE_SPEED_CHANGE        0x31  /*!< Смена скорости CAN модуля.          */
 #define EXECUTING_PROTECTED_CMD        0x3D  /*!< Выполнение защищенной команды.      */
-#define MODULE_OVERLOAD                0x3E  /*!< Перезагрузка модуля.                */
+#define MODULE_RELOAD                  0x3E  /*!< Перезагрузка модуля.                */
 #define SUPPORTED_COM_CMD_REQUEST      0x3F  /*!< Запрос поддерживаемых общих команд. */
+
+#define ONE (uint64_t)(0x1)
+#define SUPPORTED_COM_CMD_MASK ( (ONE << MODULE_INFO_REQUEST)            | \
+                                 (ONE << MODULE_SN_REQUEST)              | \
+                                 (ONE << MODULE_INTERFACE_TYPES_REQUEST) | \
+                                 (ONE << MCU_DATA_REQUEST)               | \
+                                 (ONE << UID_REQUEST)                    | \
+                                 (ONE << MODULE_STATE_REQUEST)           | \
+                                 (ONE << CAN_MODE)                       | \
+                                 (ONE << MODULE_ADDRESS_CHANGE)          | \
+                                 (ONE << CAN_MODULE_SPEED_CHANGE)        | \
+                                 (ONE << EXECUTING_PROTECTED_CMD)        | \
+                                 (ONE << MODULE_RELOAD)                  | \
+                                 (ONE << SUPPORTED_COM_CMD_REQUEST) )/*!< Ответ на запрос поддерживаемых общих команд. */
 //--------------------------------------//
 
 //-Макросы для определения типа параметров при команде CAN_MODE-//
@@ -74,6 +88,8 @@
 
 #define WAS    1
 #define WASNOT 0
+
+#define PROTECT_CMD_PARAM (uint8_t)0x15 /*!< Значение параметра для команды "Выполнение защищенной команды". */ 
 //------------------------------------------------------------------------------//
 
 //---Exported variables---------------------------------------------------------//
@@ -113,8 +129,11 @@ void InitStructs (Config_struct* ConfigPointer, RO_Constants_struct*  ConstPoint
 void SendModuleInfo (void)
 {
 InitStructs (ConfigPointer, ConstPointer, TXframePointer);
-TXframePointer->Data[0] = ConstPointer  -> HardwareRevision.major;
-TXframePointer->Data[1] = ConstPointer  -> HardwareRevision.minor;
+//TXframePointer->Data[0] = ConstPointer  -> HardwareRevision.major;
+//TXframePointer->Data[1] = ConstPointer  -> HardwareRevision.minor;
+//Put16toFrameData = *(uint16_t*)(HARDWARE_REVISION_ADDR_IN_FLASH); // Копируем значение аппаратной ревизии из Flash.
+TXframePointer->Data[0] = *(uint8_t*)(HARDWARE_REVISION_ADDR_IN_FLASH + 1); // Копируем значение аппаратной ревизии из Flash.
+TXframePointer->Data[1] = *(uint8_t*)(HARDWARE_REVISION_ADDR_IN_FLASH);     // Копируем значение аппаратной ревизии из Flash.
 TXframePointer->Data[2] = ConfigPointer -> BootloaderVersion.major;
 TXframePointer->Data[3] = ConfigPointer -> BootloaderVersion.minor;
 TXframePointer->Data[4] = ConfigPointer -> ProgramVersion.major;
@@ -135,10 +154,10 @@ void ParsingComCmd (canRxMsgBuf_struct* canRxMsg)
 {
 uint8_t        CMD_type = ((canRxMsg->cmd13param >> 6) & MASK);
 static uint8_t IDarray [24] = {0}; // 24 - размер UID в байтах согласно протоколу.
-uint8_t        IDsize;
+static uint8_t IDsize;
 static uint8_t ProtectCMDstate;  // Флаг поступившей команды EXECUTING_PROTECTED_CMD: ProtectCMDstate = WAS    - команда поступила;
                                  //                                                   ProtectCMDstate = WASNOT - команда не поступила;
-CMD_type = MCU_DATA_REQUEST; // СТРОЧКА ДЛЯ ОТЛАДКИ
+//CMD_type = MCU_DATA_REQUEST; // СТРОЧКА ДЛЯ ОТЛАДКИ
 
 switch (CMD_type)
   {
@@ -150,7 +169,8 @@ switch (CMD_type)
     TXframePointer -> id.cmd_type = MODULE_SN_REQUEST;
     TXframePointer -> id.param    = 0;
     TXframePointer -> NumOfData   = 8;
-    Put64toFrameData              = *((uint64_t*)(ConstPointer -> SerialNumberLW));
+//    Put64toFrameData              = *((uint64_t*)(ConstPointer -> SerialNumberLW));
+    Put64toFrameData              = *((uint64_t*)SERIAL_NUMBER_ADDR_IN_FLASH);
     putIntoCanTxBuffer(TXframePointer);
     break;
 
@@ -171,6 +191,7 @@ switch (CMD_type)
     break;
 
   case (UID_REQUEST): // Запрос UID.
+  //------------------------------------------------------------------------------------------------------------------------
     TXframePointer -> id.cmd_type = UID_REQUEST;
     if (!IDarray[0]) // Если в младшем байте массива 0, то прочитать значение UID. Сделано так чтобы не читать каждый раз.
       {
@@ -218,6 +239,7 @@ switch (CMD_type)
       }
     putIntoCanTxBuffer(TXframePointer);
     break;
+  //------------------------------------------------------------------------------------------------------------------------
 
   case (MODULE_STATE_REQUEST): // Запрос состояния модуля.
     TXframePointer -> id.cmd_type = MODULE_STATE_REQUEST;
@@ -227,6 +249,7 @@ switch (CMD_type)
     break;
 
   case (CAN_MODE): // Изменение или определение режима работы CAN.
+  //------------------------------------------------------------------------------------------------------------------------
     TXframePointer -> id.cmd_type = CAN_MODE;
     TXframePointer -> NumOfData   = 0;
     switch (canRxMsg->cmd13param & MASK)
@@ -239,7 +262,7 @@ switch (CMD_type)
       case (SILENT_MODE):
         TXframePointer -> id.param = SILENT_MODE;
         putIntoCanTxBuffer(TXframePointer);
-        SetReadCanMode(SILENT_MODE); // Установка для CAN режим "Silent communication mode".
+//        SetReadCanMode(SILENT_MODE); // Установка для CAN режим "Silent communication mode".
         break;
       case (READ_MODE):
         if (SetReadCanMode(READ_MODE) == NORMAL_MODE)
@@ -259,13 +282,15 @@ switch (CMD_type)
       default:
         break;
       }
+  //------------------------------------------------------------------------------------------------------------------------
       
   case (MODULE_ADDRESS_CHANGE): // Смена адреса модуля.
-    if (ProtectCMDstate ==  WAS)
+    if (ProtectCMDstate == WAS)
       {
       TXframePointer -> id.cmd_type = MODULE_ADDRESS_CHANGE;
       TXframePointer -> id.param    = (canRxMsg->cmd13param & MASK); // Определение параметра (нового адреса) команды.
       TXframePointer -> NumOfData   = 1;
+//      TXframePointer -> Data[0]     = ( *((uint8_t*)MODULE_ADDR_IN_FLASH) & MODULE_ADDR_MASK); // Собственный старый адрес модуля (микроконтроллера STM, GD, AT ...).
       TXframePointer -> Data[0]     = ConfigPointer -> AddrModule;
       putIntoCanTxBuffer(TXframePointer);
         
@@ -277,43 +302,50 @@ switch (CMD_type)
       }
     break;
 
-  case (CAN_MODULE_SPEED_CHANGE): // 
+  case (CAN_MODULE_SPEED_CHANGE): // Смена скорости работы CAN модуля.
+    if (ProtectCMDstate == WAS)
+      {
+      TXframePointer -> id.cmd_type = CAN_MODULE_SPEED_CHANGE;
+      TXframePointer -> id.param    = (canRxMsg->cmd13param & MASK); // Определение параметра (нового значения скорости) команды.
+      TXframePointer -> NumOfData   = 1;
+//      TXframePointer -> Data[0]     = *((can_speed*)CAN_SPEED_ADDR_IN_FLASH);
+      TXframePointer -> Data[0]     = ConfigPointer -> CanSpeed;
+      putIntoCanTxBuffer(TXframePointer);
+
+      ConfigPointer -> CanSpeed = TXframePointer -> id.param;
+      Write_Config_to_flash(ConfigPointer);
+
+      ProtectCMDstate = WASNOT;
+      SystemReset();
+      }
     break;
 
   case (EXECUTING_PROTECTED_CMD): // Выполнение защищенной команды.
-    if( (canRxMsg->cmd13param & MASK) == 0x55) // Поле параметры 6 бит!!!!!!!! 0x55 это 7 бит!!!!!
+    if( (canRxMsg->cmd13param & MASK) == PROTECT_CMD_PARAM)
       {
       ProtectCMDstate = WAS;
       return;
       }
     break;
 
-  case (MODULE_OVERLOAD): // 
+  case (MODULE_RELOAD): // Перезагрузка модуля.
+    SystemReset();
     break;
 
-  case (SUPPORTED_COM_CMD_REQUEST): // 
+  case (SUPPORTED_COM_CMD_REQUEST): // Запрос поддерживаемых общих команд.
+    TXframePointer -> id.cmd_type = SUPPORTED_COM_CMD_REQUEST;
+    TXframePointer -> id.param    = 0;
+    TXframePointer -> NumOfData   = 8;
+    Put64toFrameData              = SUPPORTED_COM_CMD_MASK;
+    putIntoCanTxBuffer(TXframePointer);
     break;
 
   default:
     break;
   }
-
+CMD_type        = 0xEE;
 ProtectCMDstate = WASNOT;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 //------------------------------------------------------------------------------//
 
 
@@ -334,7 +366,7 @@ ProtectCMDstate = WASNOT;
 void InitStructs (Config_struct* ConfigPointer, RO_Constants_struct*  ConstPointer, CAN_tx_frame_struct* TXframePointer)
 {
 Read_Config_from_flash (ConfigPointer);
-Read_RO_Constants_from_flash (ConstPointer);
+//Read_RO_Constants_from_flash (ConstPointer);
 
 TXframePointer -> id.CM             = 1;                           // Обмен между контроллером и модулем.
 TXframePointer -> id.CtoM           = 0;                           // Направление передачи: кадр будет передаваться из модуля в контроллер.
